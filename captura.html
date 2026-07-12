@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0E0D0C">
+<title>Câmera · Galeria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Hanken+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0E0D0C;
+    --surface:#1A1816;
+    --surface-2:#24211E;
+    --line:#34302B;
+    --text:#F2EDE4;
+    --muted:#9A9288;
+    --amber:#F0B429;
+    --amber-soft:rgba(240,180,41,.14);
+    --rec:#E5484D;
+    --radius:18px;
+    --safe-top:env(safe-area-inset-top,0px);
+    --safe-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Hanken Grotesk",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  .mono{font-family:"Space Mono",ui-monospace,monospace}
+  button{font-family:inherit;color:inherit;border:none;background:none;cursor:pointer}
+  :focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:6px}
+
+  .app{max-width:520px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column}
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:calc(var(--safe-top) + 14px) 18px 12px;
+  }
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);box-shadow:0 0 12px var(--amber)}
+  .brand h1{
+    font-family:"Bricolage Grotesque",sans-serif;font-weight:800;
+    font-size:19px;letter-spacing:-.02em;margin:0;
+  }
+  .user{
+    font-family:"Space Mono",monospace;font-size:11px;color:var(--muted);
+    border:1px solid var(--line);border-radius:999px;padding:5px 11px;
+    display:flex;align-items:center;gap:6px;
+  }
+  .user b{color:var(--text);font-weight:700}
+
+  /* ---------- Viewfinder ---------- */
+  .viewfinder{
+    position:relative;margin:2px 14px 0;border-radius:var(--radius);
+    aspect-ratio:3/4;overflow:hidden;background:#000;
+    border:1px solid var(--line);
+  }
+  .viewfinder video{width:100%;height:100%;object-fit:cover;display:block;transform:scaleX(1)}
+  .viewfinder video.mirror{transform:scaleX(-1)}
+
+  /* focus brackets = signature */
+  .brackets{position:absolute;inset:14px;pointer-events:none}
+  .brackets span{position:absolute;width:26px;height:26px;border:2px solid var(--amber);opacity:.9}
+  .brackets .tl{top:0;left:0;border-right:none;border-bottom:none;border-radius:8px 0 0 0}
+  .brackets .tr{top:0;right:0;border-left:none;border-bottom:none;border-radius:0 8px 0 0}
+  .brackets .bl{bottom:0;left:0;border-right:none;border-top:none;border-radius:0 0 0 8px}
+  .brackets .br{bottom:0;right:0;border-left:none;border-top:none;border-radius:0 0 8px 0}
+
+  .hud{
+    position:absolute;top:24px;left:24px;right:24px;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    font-family:"Space Mono",monospace;font-size:11px;letter-spacing:.04em;
+    color:var(--text);text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none;
+  }
+  .hud .rec{display:flex;align-items:center;gap:6px;color:var(--rec);opacity:0;transition:opacity .2s}
+  .hud .rec.on{opacity:1}
+  .hud .rec .blink{width:9px;height:9px;border-radius:50%;background:var(--rec);animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:.2}}
+
+  /* camera-off state */
+  .vf-off{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:14px;text-align:center;
+    padding:32px;background:
+      radial-gradient(120% 90% at 50% 20%, #201d1a 0%, #0b0a09 100%);
+  }
+  .vf-off svg{width:44px;height:44px;stroke:var(--muted)}
+  .vf-off p{margin:0;color:var(--muted);font-size:14px;line-height:1.5;max-width:260px}
+  .vf-off button{
+    margin-top:4px;background:var(--amber);color:#1a1408;font-weight:600;
+    padding:11px 20px;border-radius:999px;font-size:14px;
+  }
+  .hidden{display:none !important}
+
+  /* ---------- Controls ---------- */
+  .controls{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:18px 34px 8px;
+  }
+  .mini{
+    width:52px;height:52px;border-radius:50%;background:var(--surface-2);
+    border:1px solid var(--line);display:flex;align-items:center;justify-content:center;
+    transition:transform .12s,background .15s;
+  }
+  .mini:active{transform:scale(.9)}
+  .mini svg{width:22px;height:22px;stroke:var(--text);fill:none;stroke-width:1.8}
+
+  .shutter{
+    width:78px;height:78px;border-radius:50%;
+    border:4px solid var(--text);background:transparent;
+    display:flex;align-items:center;justify-content:center;
+    transition:transform .12s;position:relative;
+  }
+  .shutter:active{transform:scale(.92)}
+  .shutter .core{
+    width:60px;height:60px;border-radius:50%;background:var(--text);
+    transition:all .25s cubic-bezier(.4,0,.2,1);
+  }
+  body.mode-video .shutter{border-color:var(--rec)}
+  body.mode-video .shutter .core{background:var(--rec)}
+  body.recording .shutter .core{width:26px;height:26px;border-radius:7px}
+
+  /* mode switch */
+  .modeswitch{
+    display:flex;gap:4px;margin:2px auto 0;width:max-content;
+    background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px;
+  }
+  .modeswitch button{
+    font-family:"Space Mono",monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--muted);padding:7px 18px;border-radius:999px;transition:.18s;
+  }
+  .modeswitch button.active{background:var(--amber-soft);color:var(--amber)}
+
+  /* ---------- Sections ---------- */
+  section{padding:24px 0 0}
+  .head{display:flex;align-items:baseline;justify-content:space-between;padding:0 18px 12px}
+  .head h2{
+    font-family:"Bricolage Grotesque",sans-serif;font-weight:600;font-size:15px;
+    letter-spacing:.02em;margin:0;text-transform:uppercase;
+  }
+  .head .count{font-family:"Space Mono",monospace;font-size:11px;color:var(--muted)}
+
+  /* carousel */
+  .carousel{
+    display:flex;gap:12px;overflow-x:auto;padding:0 18px 6px;
+    scroll-snap-type:x mandatory;scrollbar-width:none;
+  }
+  .carousel::-webkit-scrollbar{display:none}
+  .carousel .card{
+    flex:0 0 128px;aspect-ratio:3/4;border-radius:14px;overflow:hidden;position:relative;
+    scroll-snap-align:start;background:var(--surface-2);border:1px solid var(--line);
+  }
+  .carousel .card img,.carousel .card video{width:100%;height:100%;object-fit:cover}
+  .card .badge{
+    position:absolute;top:8px;left:8px;width:24px;height:24px;border-radius:50%;
+    background:rgba(0,0,0,.55);backdrop-filter:blur(4px);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .card .badge svg{width:13px;height:13px;fill:var(--text)}
+  .card .stamp{
+    position:absolute;bottom:7px;left:8px;font-family:"Space Mono",monospace;
+    font-size:9px;color:#fff;text-shadow:0 1px 2px #000;
+  }
+
+  /* filter chips */
+  .filters{display:flex;gap:8px;overflow-x:auto;padding:0 18px 4px;scrollbar-width:none}
+  .filters::-webkit-scrollbar{display:none}
+  .chip{
+    flex:0 0 auto;font-family:"Space Mono",monospace;font-size:12px;
+    padding:7px 13px;border-radius:8px;border:1px solid var(--line);
+    color:var(--muted);background:var(--surface);white-space:nowrap;transition:.15s;
+  }
+  .chip.active{background:var(--amber);color:#1a1408;border-color:var(--amber);font-weight:700}
+
+  /* gallery grid */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:0 4px 20px}
+  .grid .tile{position:relative;aspect-ratio:1;background:var(--surface-2);overflow:hidden;border-radius:3px}
+  .grid .tile img,.grid .tile video{width:100%;height:100%;object-fit:cover}
+  .grid .tile .badge{width:20px;height:20px;top:5px;left:5px}
+  .grid .tile .badge svg{width:11px;height:11px}
+  .empty{
+    grid-column:1/-1;text-align:center;color:var(--muted);
+    padding:48px 24px;font-size:14px;line-height:1.5;
+  }
+  .empty b{color:var(--text);font-weight:600;display:block;margin-bottom:4px;font-size:15px}
+
+  /* ---------- Lightbox ---------- */
+  .lightbox{
+    position:fixed;inset:0;z-index:50;background:rgba(8,7,6,.96);
+    backdrop-filter:blur(8px);display:none;flex-direction:column;
+  }
+  .lightbox.open{display:flex;animation:fade .2s ease}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .lb-top{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:calc(var(--safe-top) + 14px) 18px 12px;
+  }
+  .lb-top .meta{font-family:"Space Mono",monospace;font-size:12px;color:var(--muted)}
+  .lb-close{width:38px;height:38px;border-radius:50%;background:var(--surface-2);display:flex;align-items:center;justify-content:center}
+  .lb-close svg{width:20px;height:20px;stroke:var(--text);stroke-width:2}
+  .lb-media{flex:1;display:flex;align-items:center;justify-content:center;padding:0 14px;min-height:0}
+  .lb-media img,.lb-media video{max-width:100%;max-height:100%;border-radius:12px;object-fit:contain}
+  .lb-tags{padding:16px 18px calc(var(--safe-bottom) + 20px)}
+  .lb-tags .row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .tag{
+    font-family:"Space Mono",monospace;font-size:12px;padding:6px 10px;border-radius:8px;
+    background:var(--amber-soft);color:var(--amber);display:flex;align-items:center;gap:6px;
+  }
+  .tag button{color:var(--amber);opacity:.6;font-size:15px;line-height:1;display:flex}
+  .tag button:hover{opacity:1}
+  .taginput{display:flex;gap:8px}
+  .taginput input{
+    flex:1;background:var(--surface);border:1px solid var(--line);border-radius:10px;
+    padding:11px 14px;color:var(--text);font-family:"Space Mono",monospace;font-size:13px;
+  }
+  .taginput input::placeholder{color:var(--muted)}
+  .taginput button{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:0 18px;font-weight:600;font-size:13px}
+
+  /* toast */
+  .toast{
+    position:fixed;left:50%;bottom:calc(var(--safe-bottom) + 24px);transform:translateX(-50%) translateY(20px);
+    background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+    padding:11px 18px;border-radius:12px;font-size:13px;opacity:0;pointer-events:none;
+    transition:.25s;z-index:60;box-shadow:0 8px 30px rgba(0,0,0,.5);
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+</style>
+</head>
+<body class="mode-photo">
+<div class="app">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><h1>Registro</h1></div>
+    <div class="user"><b id="userLabel">você</b> · sessão</div>
+  </div>
+
+  <!-- Viewfinder -->
+  <div class="viewfinder">
+    <video id="preview" class="mirror hidden" autoplay playsinline muted></video>
+    <div class="brackets hidden" id="brackets">
+      <span class="tl"></span><span class="tr"></span><span class="bl"></span><span class="br"></span>
+    </div>
+    <div class="hud">
+      <span class="mono" id="hudMode">FOTO</span>
+      <span class="rec" id="hudRec"><span class="blink"></span><span id="recTime">00:00</span></span>
+    </div>
+    <div class="vf-off" id="vfOff">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+      </svg>
+      <p id="vfMsg">A câmera funciona quando a página é aberta por <b>HTTPS</b> (site publicado ou <span class="mono">localhost</span>). Toque para ativar — ou envie arquivos abaixo.</p>
+      <button id="btnEnable">Ativar câmera</button>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="mini" id="btnFlip" title="Virar câmera" aria-label="Virar câmera">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17v-6h-6"/><path d="M21 11a9 9 0 0 0-15-4L3 10"/><path d="M3 13a9 9 0 0 0 15 4l3-3"/></svg>
+    </button>
+    <button class="shutter" id="btnShutter" aria-label="Capturar"><span class="core"></span></button>
+    <button class="mini" id="btnUpload" title="Enviar arquivos" aria-label="Enviar arquivos">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v13"/></svg>
+    </button>
+    <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
+  </div>
+
+  <!-- Mode switch -->
+  <div class="modeswitch">
+    <button data-mode="photo" class="active">Foto</button>
+    <button data-mode="video">Vídeo</button>
+  </div>
+
+  <!-- Recent carousel -->
+  <section>
+    <div class="head"><h2>Recentes</h2><span class="count mono" id="recentCount">0</span></div>
+    <div class="carousel" id="carousel"></div>
+  </section>
+
+  <!-- Filters -->
+  <section style="padding-top:22px">
+    <div class="head"><h2>Galeria</h2><span class="count mono" id="galleryCount">0</span></div>
+    <div class="filters" id="filters"></div>
+  </section>
+
+  <!-- Grid -->
+  <div class="grid" id="grid"></div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox">
+  <div class="lb-top">
+    <span class="meta mono" id="lbMeta"></span>
+    <button class="lb-close" id="lbClose" aria-label="Fechar"><svg viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </div>
+  <div class="lb-media" id="lbMedia"></div>
+  <div class="lb-tags">
+    <div class="row" id="lbTagRow"></div>
+    <div class="taginput">
+      <input type="text" id="tagField" placeholder="adicionar hashtag e Enter…" autocomplete="off">
+      <button id="tagAdd">Marcar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================================
+   ESTADO — em memória (só a sessão). Ao publicar, troque estas funções
+   pelos SDKs do Supabase (auth.getUser, storage.upload, from('media')...).
+   Pontos de integração estão marcados com  >>> BACKEND.
+   ========================================================================= */
+const store = [];          // { id, type:'photo'|'video', url, ts, tags:[] }
+let activeFilter = null;    // hashtag selecionada, ou null = tudo
+let mode = 'photo';
+let stream = null, facing = 'environment', recorder = null, recChunks = [], recTimer = null, recStart = 0;
+
+const $ = s => document.querySelector(s);
+const els = {
+  preview:$('#preview'), brackets:$('#brackets'), vfOff:$('#vfOff'), vfMsg:$('#vfMsg'),
+  hudMode:$('#hudMode'), hudRec:$('#hudRec'), recTime:$('#recTime'),
+  carousel:$('#carousel'), grid:$('#grid'), filters:$('#filters'),
+  recentCount:$('#recentCount'), galleryCount:$('#galleryCount'),
+  lightbox:$('#lightbox'), lbMedia:$('#lbMedia'), lbTagRow:$('#lbTagRow'), lbMeta:$('#lbMeta'),
+  toast:$('#toast'),
+};
+
+/* ---------- util ---------- */
+const uid = () => Math.random().toString(36).slice(2,9);
+const fmtTime = ts => new Date(ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+function toast(msg){ els.toast.textContent=msg; els.toast.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>els.toast.classList.remove('show'),2200); }
+
+/* ---------- câmera ---------- */
+async function startCamera(){
+  try{
+    if(stream) stream.getTracks().forEach(t=>t.stop());
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:facing }, audio:true
+    });
+    els.preview.srcObject = stream;
+    els.preview.classList.toggle('mirror', facing==='user');
+    els.preview.classList.remove('hidden');
+    els.brackets.classList.remove('hidden');
+    els.vfOff.classList.add('hidden');
+  }catch(err){
+    els.vfOff.classList.remove('hidden');
+    els.preview.classList.add('hidden');
+    els.brackets.classList.add('hidden');
+    if(err.name==='NotAllowedError') els.vfMsg.innerHTML='Permissão de câmera negada. Libere nas configurações do navegador e toque abaixo.';
+    else if(location.protocol==='file:'||location.protocol==='https:'||location.hostname==='localhost'){} 
+  }
+}
+$('#btnEnable').onclick = startCamera;
+
+$('#btnFlip').onclick = () => { facing = facing==='environment'?'user':'environment'; if(stream) startCamera(); else toast('Ative a câmera primeiro'); };
+
+/* ---------- modo ---------- */
+document.querySelectorAll('.modeswitch button').forEach(b=>{
+  b.onclick = () => {
+    if(recorder && recorder.state==='recording') return;
+    mode = b.dataset.mode;
+    document.querySelectorAll('.modeswitch button').forEach(x=>x.classList.toggle('active', x===b));
+    document.body.className = 'mode-'+mode;
+    els.hudMode.textContent = mode==='photo'?'FOTO':'VÍDEO';
+  };
+});
+
+/* ---------- captura ---------- */
+$('#btnShutter').onclick = () => {
+  if(!stream){ toast('Ative a câmera para capturar'); return; }
+  if(mode==='photo') capturePhoto(); else toggleRecord();
+};
+
+function capturePhoto(){
+  const v = els.preview;
+  const c = document.createElement('canvas');
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  const ctx = c.getContext('2d');
+  if(facing==='user'){ ctx.translate(c.width,0); ctx.scale(-1,1); }
+  ctx.drawImage(v,0,0);
+  c.toBlob(blob => addItem('photo', blob), 'image/jpeg', 0.92);
+  flashEffect();
+}
+
+function pickMime(){
+  const opts = ['video/mp4','video/webm;codecs=vp9,opus','video/webm'];
+  return opts.find(m => MediaRecorder.isTypeSupported(m)) || '';
+}
+function toggleRecord(){
+  if(recorder && recorder.state==='recording'){
+    recorder.stop();
+    return;
+  }
+  recChunks = [];
+  recorder = new MediaRecorder(stream, { mimeType:pickMime() });
+  recorder.ondataavailable = e => { if(e.data.size) recChunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(recChunks, { type: recorder.mimeType });
+    addItem('video', blob);
+    document.body.classList.remove('recording');
+    els.hudRec.classList.remove('on');
+    clearInterval(recTimer);
+  };
+  recorder.start();
+  recStart = Date.now();
+  document.body.classList.add('recording');
+  els.hudRec.classList.add('on');
+  recTimer = setInterval(()=>{
+    const s = Math.floor((Date.now()-recStart)/1000);
+    els.recTime.textContent = String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+  },250);
+}
+
+function flashEffect(){
+  const f = document.createElement('div');
+  f.style.cssText='position:fixed;inset:0;background:#fff;z-index:70;opacity:.85;pointer-events:none;transition:opacity .3s';
+  document.body.appendChild(f);
+  requestAnimationFrame(()=>{ f.style.opacity='0'; setTimeout(()=>f.remove(),320); });
+}
+
+/* ---------- upload ---------- */
+$('#btnUpload').onclick = () => $('#fileInput').click();
+$('#fileInput').onchange = e => {
+  [...e.target.files].forEach(file => {
+    const type = file.type.startsWith('video') ? 'video' : 'photo';
+    addItem(type, file);
+  });
+  e.target.value = '';
+};
+
+/* ---------- adicionar item ---------- */
+function addItem(type, blob){
+  // >>> BACKEND: aqui você faria supabase.storage.from('media').upload(...)
+  //     e depois supabase.from('media').insert({ type, url, tags }).
+  const item = { id:uid(), type, url:URL.createObjectURL(blob), ts:Date.now(), tags:[] };
+  store.unshift(item);
+  render();
+  toast(type==='photo'?'Foto salva':'Vídeo salvo');
+}
+
+/* ---------- render ---------- */
+function mediaEl(item, {muted=true}={}){
+  if(item.type==='photo'){ const i=document.createElement('img'); i.src=item.url; i.loading='lazy'; return i; }
+  const v=document.createElement('video'); v.src=item.url; v.muted=muted; v.playsInline=true; v.preload='metadata'; return v;
+}
+function badge(type){
+  const b=document.createElement('div'); b.className='badge';
+  b.innerHTML = type==='video'
+    ? '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>'
+    : '<svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3"/></svg>';
+  return b;
+}
+
+function render(){
+  // recentes (todos, mais novo primeiro — já ordenado)
+  els.carousel.innerHTML='';
+  store.slice(0,12).forEach(item=>{
+    const card=document.createElement('button'); card.className='card';
+    card.appendChild(mediaEl(item));
+    if(item.type==='video') card.appendChild(badge('video'));
+    const s=document.createElement('div'); s.className='stamp mono'; s.textContent=fmtTime(item.ts); card.appendChild(s);
+    card.onclick=()=>openLightbox(item.id);
+    els.carousel.appendChild(card);
+  });
+  els.recentCount.textContent = store.length;
+
+  // filtros (hashtags únicas)
+  const tags = [...new Set(store.flatMap(i=>i.tags))].sort();
+  els.filters.innerHTML='';
+  const allChip=document.createElement('button'); allChip.className='chip'+(activeFilter?'':' active'); allChip.textContent='tudo';
+  allChip.onclick=()=>{activeFilter=null;render();};
+  els.filters.appendChild(allChip);
+  tags.forEach(t=>{
+    const c=document.createElement('button'); c.className='chip'+(activeFilter===t?' active':''); c.textContent='#'+t;
+    c.onclick=()=>{activeFilter=activeFilter===t?null:t;render();};
+    els.filters.appendChild(c);
+  });
+
+  // grade
+  const list = activeFilter ? store.filter(i=>i.tags.includes(activeFilter)) : store;
+  els.galleryCount.textContent = list.length;
+  els.grid.innerHTML='';
+  if(!list.length){
+    const e=document.createElement('div'); e.className='empty';
+    e.innerHTML = activeFilter
+      ? '<b>Nada com #'+activeFilter+'</b>Capture ou marque um item com essa hashtag.'
+      : '<b>Sem mídia ainda</b>Capture uma foto, grave um vídeo ou envie arquivos.';
+    els.grid.appendChild(e); return;
+  }
+  list.forEach(item=>{
+    const t=document.createElement('button'); t.className='tile';
+    t.appendChild(mediaEl(item));
+    if(item.type==='video') t.appendChild(badge('video'));
+    t.onclick=()=>openLightbox(item.id);
+    els.grid.appendChild(t);
+  });
+}
+
+/* ---------- lightbox ---------- */
+let currentId=null;
+function openLightbox(id){
+  currentId=id;
+  const item=store.find(i=>i.id===id); if(!item) return;
+  els.lbMedia.innerHTML='';
+  if(item.type==='photo'){ const i=document.createElement('img'); i.src=item.url; els.lbMedia.appendChild(i); }
+  else{ const v=document.createElement('video'); v.src=item.url; v.controls=true; v.autoplay=true; v.playsInline=true; els.lbMedia.appendChild(v); }
+  els.lbMeta.textContent = (item.type==='video'?'VÍDEO · ':'FOTO · ')+fmtTime(item.ts);
+  renderLbTags(item);
+  els.lightbox.classList.add('open');
+}
+function renderLbTags(item){
+  els.lbTagRow.innerHTML='';
+  item.tags.forEach(t=>{
+    const el=document.createElement('span'); el.className='tag';
+    el.innerHTML='#'+t+' <button aria-label="remover">×</button>';
+    el.querySelector('button').onclick=()=>{ item.tags=item.tags.filter(x=>x!==t); renderLbTags(item); render(); };
+    els.lbTagRow.appendChild(el);
+  });
+}
+function addTag(){
+  const item=store.find(i=>i.id===currentId); if(!item) return;
+  const field=$('#tagField');
+  const raw=field.value.trim().replace(/^#/,'').replace(/\s+/g,'-').toLowerCase();
+  if(raw && !item.tags.includes(raw)){ item.tags.push(raw); renderLbTags(item); render(); }
+  field.value=''; field.focus();
+}
+$('#tagAdd').onclick=addTag;
+$('#tagField').addEventListener('keydown',e=>{ if(e.key==='Enter') addTag(); });
+$('#lbClose').onclick=()=>{ const v=els.lbMedia.querySelector('video'); if(v)v.pause(); els.lightbox.classList.remove('open'); };
+els.lightbox.addEventListener('click',e=>{ if(e.target===els.lightbox) $('#lbClose').click(); });
+
+/* ---------- seed de demonstração (remova ao publicar) ---------- */
+function seed(){
+  const demos=[
+    ['#7C6A46','#3A2F1C','viagem'],['#4A5A6B','#1E2830','obra'],
+    ['#6B4A5A','#2E1C26','família'],['#4A6B52','#1C2E22','viagem'],
+  ];
+  demos.forEach(([a,b,tag],idx)=>{
+    const c=document.createElement('canvas'); c.width=600;c.height=800;
+    const ctx=c.getContext('2d');
+    const g=ctx.createLinearGradient(0,0,600,800); g.addColorStop(0,a); g.addColorStop(1,b);
+    ctx.fillStyle=g; ctx.fillRect(0,0,600,800);
+    ctx.fillStyle='rgba(255,255,255,.06)'; ctx.font='bold 120px sans-serif'; ctx.fillText('0'+(idx+1),40,700);
+    c.toBlob(blob=>{
+      const item={id:uid(),type:'photo',url:URL.createObjectURL(blob),ts:Date.now()-idx*3600000,tags:[tag]};
+      store.push(item); store.sort((x,y)=>y.ts-x.ts); render();
+    },'image/jpeg',0.9);
+  });
+}
+
+/* ---------- init ---------- */
+seed();
+render();
+// tenta câmera automaticamente se estiver em contexto seguro
+if(location.protocol==='https:'||location.hostname==='localhost') startCamera();
+</script>
+</body>
+</html>
