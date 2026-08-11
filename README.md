@@ -40,6 +40,7 @@ captura-drive/
 └── src/
     ├── App.jsx
     ├── config.js
+    ├── config.example.js
     ├── index.css
     ├── main.jsx
     ├── components/
@@ -88,7 +89,7 @@ O app roda em `http://localhost:5173`. Como `getUserMedia` exige contexto seguro
 
 ## Configuração do Google Drive
 
-Edite `src/config.js` e preencha:
+Copie `src/config.example.js` para `src/config.js` (ignorado pelo git, não vai pro repositório) e preencha:
 
 1. `CLIENT_ID` com o OAuth Client ID do Google Cloud Console.
 2. `FOLDER_ID` com o ID da pasta do Google Drive onde os arquivos serão salvos.
