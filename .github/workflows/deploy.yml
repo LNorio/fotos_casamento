@@ -28,13 +28,18 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run build
+      # VITE_BASE sai de GITHUB_REPOSITORY ("dono/repo"), que existe em
+      # qualquer evento — ao contrário de github.event.repository, que
+      # some em alguns e deixaria o base como "//", quebrando os assets.
+      # Com domínio próprio, troque a expressão por "/".
+      - name: Build
         env:
           # Cadastre em Settings → Secrets and variables → Actions.
           VITE_WEB_APP_URL: ${{ secrets.WEB_APP_URL }}
-          # Projeto publicado em usuario.github.io/nome-do-repo/.
-          # Se usar domínio próprio, troque por "/".
-          VITE_BASE: /${{ github.event.repository.name }}/
+        run: |
+          export VITE_BASE="/${GITHUB_REPOSITORY#*/}/"
+          echo "base: $VITE_BASE"
+          npm run build
 
       - uses: actions/configure-pages@v5
 
