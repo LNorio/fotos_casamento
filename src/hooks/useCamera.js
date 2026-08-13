@@ -34,9 +34,33 @@ export function useCamera() {
     setTorchSupported(false);
   }, []);
 
+  // Ordem da última abertura pedida. Duas chamadas concorrentes a
+  // getUserMedia deixam um stream órfão ligado e podem falhar com
+  // NotReadableError; o token faz a mais recente vencer e a anterior
+  // devolver a câmera em vez de brigar por ela.
+  const startTokenRef = useRef(0);
+
   const start = useCallback(async () => {
+    const token = ++startTokenRef.current;
     setError(null);
     stop();
+
+    // navigator.mediaDevices só existe em contexto seguro: HTTPS ou
+    // localhost. Aberto por http://<ip> na rede local ele vem
+    // undefined, e sem esta checagem o erro que aparece é
+    // "Cannot read properties of undefined", que não ajuda ninguém.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const inseguro =
+        window.location.protocol !== 'https:' &&
+        !['localhost', '127.0.0.1'].includes(window.location.hostname);
+      setError(
+        inseguro
+          ? 'A câmera exige HTTPS. Neste endereço (http://) o navegador bloqueia o acesso — use o site publicado ou rode com HTTPS.'
+          : 'Este navegador não oferece acesso à câmera.'
+      );
+      return;
+    }
+
     const base = { video: { facingMode }, audio: true };
     try {
       // Tenta com áudio (p/ gravar vídeo com som).
@@ -48,6 +72,14 @@ export function useCamera() {
         // Refaz só com vídeo p/ pelo menos a imagem funcionar.
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode } });
       }
+
+      // Outra abertura começou enquanto esta esperava: descarta a
+      // resposta e libera a câmera, senão fica um stream sem dono.
+      if (token !== startTokenRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
       streamRef.current = stream;
       const v = videoRef.current;
       if (v) {
@@ -101,7 +133,14 @@ export function useCamera() {
       // Reabrir a câmera no meio de uma gravação a perderia.
       if (recordingRef.current) return;
 
-      const track = streamRef.current?.getVideoTracks()[0];
+      // Sem stream ainda: ou a primeira abertura está em curso, ou ela
+      // falhou e já há mensagem na tela. Em nenhum dos dois casos cabe
+      // abrir outra aqui — e isto importa porque pageshow dispara
+      // também no carregamento inicial, junto com a abertura normal.
+      const stream = streamRef.current;
+      if (!stream) return;
+
+      const track = stream.getVideoTracks()[0];
       if (!track || track.readyState !== 'live') {
         start();
         return;
