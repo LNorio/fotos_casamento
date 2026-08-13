@@ -1,9 +1,13 @@
 // Visor de câmera ao vivo com moldura de foco e HUD.
+const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
 export default function CameraView({
   videoRef,
   ready,
   error,
   recording,
+  recordSeconds = 0,
+  maxSeconds,
   facingMode,
   torchOn,
   torchSupported,
@@ -42,7 +46,14 @@ export default function CameraView({
       {/* HUD */}
       <div className="hud mono">
         <span>{facingMode === 'user' ? 'FRONTAL' : 'TRASEIRA'}</span>
-        {recording && <span className="rec-dot">● REC</span>}
+        {/* Com limite de duração, o tempo decorrido deixa de ser
+            enfeite: sem ele a gravação simplesmente para sozinha. */}
+        {recording && (
+          <span className="rec-dot">
+            ● REC {mmss(recordSeconds)}
+            {maxSeconds ? ` / ${mmss(maxSeconds)}` : ''}
+          </span>
+        )}
       </div>
 
       {!ready && !error && <div className="viewfinder-msg">Iniciando câmera…</div>}

@@ -4,4 +4,3 @@ dist
 *.local
 .vscode/*
 !.vscode/extensions.json
-src/config.js

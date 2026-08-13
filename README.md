@@ -2,9 +2,31 @@
 
 Aplicação em React + Vite para capturar fotos e vídeos com a câmera do dispositivo, organizar mídias por hashtags e salvar tudo em uma pasta do Google Drive.
 
+Quem usa o app **não faz login em nada**: um Web App do Google Apps Script, publicado na conta dona da pasta, é quem conversa com o Drive.
+
+## Arquitetura
+
+```
+┌──────────────────┐         ┌───────────────────────┐
+│  GitHub Pages    │ fetch   │  Apps Script Web App  │
+│  cliente (React) │────────▶│  apps-script/Codigo.gs│
+└────────┬─────────┘         └───────────┬───────────┘
+         │                               │ OAuth do dono
+         │  miniaturas e mídia           ▼
+         │  direto do CDN         ┌──────────────┐
+         └───────────────────────▶│ Google Drive │
+                                  └──────────────┘
+```
+
+Três serviços gratuitos, nenhum servidor próprio:
+
+- **Envio** — o script abre uma sessão de upload resumível no Drive e devolve só a URL da sessão. O navegador manda os bytes direto para o Drive, o que dispensa limite de tamanho e mantém a barra de progresso. Os arquivos não passam pelo Apps Script.
+- **Listagem** — o script devolve os metadados da pasta (incluindo hashtags e autor) já com as URLs públicas de cada mídia.
+- **Exibição** — as miniaturas e as fotos em tela cheia vêm do CDN do Google; os vídeos usam o player do próprio Drive. Nada disso consome cota do script.
+
 ## Linguagem utilizada
 
-O projeto é escrito em **JavaScript moderno** com **React**. A base de execução é o **Vite**, que fornece o ambiente de desenvolvimento e o build final.
+O projeto é escrito em **JavaScript moderno** com **React**. A base de execução é o **Vite**, que fornece o ambiente de desenvolvimento e o build final. O backend é um arquivo `.gs` (Apps Script, também JavaScript).
 
 Além do JavaScript, o projeto usa:
 
@@ -18,12 +40,11 @@ O objetivo da aplicação é funcionar como uma câmera com galeria integrada. O
 - abrir a câmera traseira ou frontal;
 - tirar fotos;
 - gravar vídeos;
+- enviar fotos e vídeos já salvos no dispositivo;
 - adicionar hashtags antes da captura;
 - visualizar a galeria de mídias salvas no Google Drive;
 - filtrar os itens por hashtag;
 - abrir fotos e vídeos em tela cheia.
-
-A autenticação é feita com **Google Identity Services** e o armazenamento usa a **Google Drive API v3**. As mídias são enviadas diretamente para uma pasta específica do Drive e as hashtags são guardadas nos `appProperties` de cada arquivo.
 
 ## Hierarquia de pastas e arquivos
 
@@ -34,13 +55,20 @@ captura-drive/
 ├── package-lock.json
 ├── README.md
 ├── vite.config.js
+├── .env.example
 ├── .gitignore
+├── .github/
+│   └── workflows/
+│       └── deploy.yml
 ├── .vscode/
 │   └── extensions.json
+├── apps-script/
+│   ├── Codigo.gs
+│   ├── appsscript.json
+│   └── README.md
 └── src/
     ├── App.jsx
     ├── config.js
-    ├── config.example.js
     ├── index.css
     ├── main.jsx
     ├── components/
@@ -48,37 +76,44 @@ captura-drive/
     │   ├── CaptureControls.jsx
     │   ├── Gallery.jsx
     │   ├── HashtagFilter.jsx
-    │   └── Lightbox.jsx
+    │   ├── Lightbox.jsx
+    │   └── UploadPreviewModal.jsx
     ├── hooks/
-    │   ├── useCamera.js
-    │   └── useDriveAuth.js
-    └── services/
-        └── driveStorage.js
+    │   └── useCamera.js
+    ├── services/
+    │   └── driveStorage.js
+    └── utils/
+        └── hashtags.js
 ```
 
 ### Resumo dos arquivos
 
-- `index.html`: ponto de entrada do app, carrega fontes, Google Identity Services e o bundle React.
+- `index.html`: ponto de entrada do app, carrega fontes e o bundle React.
 - `package.json`: define nome do projeto, scripts e dependências.
-- `package-lock.json`: trava as versões instaladas pelo npm para manter o ambiente consistente.
-- `vite.config.js`: configuração do Vite, incluindo porta e acesso na rede local.
-- `README.md`: documentação principal do projeto.
-- `.gitignore`: arquivos e pastas que não devem ir para o repositório.
-- `.vscode/extensions.json`: sugestões de extensões para o VS Code.
+- `vite.config.js`: configuração do Vite, incluindo porta, acesso na rede local e o caminho base usado no GitHub Pages.
+- `.env.example`: modelo do `.env.local` com a URL do Web App.
+- `.github/workflows/deploy.yml`: publica o cliente no GitHub Pages a cada push na `main`.
+- `apps-script/Codigo.gs`: o backend — listagem da pasta e abertura das sessões de upload.
+- `apps-script/appsscript.json`: manifesto do script (escopos e modo de publicação).
+- `apps-script/README.md`: passo a passo da publicação do Web App.
 - `src/main.jsx`: monta o React no elemento raiz da página.
-- `src/App.jsx`: componente principal, coordena câmera, login, upload e galeria.
-- `src/config.js`: concentra `CLIENT_ID`, `FOLDER_ID`, escopo OAuth e URLs da API.
+- `src/App.jsx`: componente principal, coordena câmera, upload e galeria.
+- `src/config.js`: lê a URL do Web App a partir da variável de ambiente.
 - `src/index.css`: estilos globais e toda a aparência da interface.
 - `src/components/CameraView.jsx`: mostra a pré-visualização da câmera e o HUD.
 - `src/components/CaptureControls.jsx`: botões de flip, foto e vídeo.
-- `src/components/Gallery.jsx`: exibe a galeria em formato masonry e carrega as mídias sob demanda.
+- `src/components/Gallery.jsx`: exibe a galeria em formato masonry.
 - `src/components/HashtagFilter.jsx`: cria os chips para filtrar a galeria por hashtag.
 - `src/components/Lightbox.jsx`: abre foto ou vídeo em tela cheia.
+- `src/components/UploadPreviewModal.jsx`: revisão das mídias escolhidas no dispositivo antes do envio.
 - `src/hooks/useCamera.js`: controla a câmera, captura de foto e gravação de vídeo.
-- `src/hooks/useDriveAuth.js`: faz a autenticação OAuth com o Google.
-- `src/services/driveStorage.js`: concentra upload, listagem, filtro e download das mídias no Drive.
+- `src/services/driveStorage.js`: conversa com o Web App (listagem e upload).
+- `src/utils/hashtags.js`: normaliza o texto digitado em uma lista de hashtags.
 
-## Como executar
+## Configuração
+
+1. Publique o backend seguindo o [apps-script/README.md](apps-script/README.md) e copie a URL terminada em `/exec`.
+2. Copie `.env.example` para `.env.local` e preencha `VITE_WEB_APP_URL` com essa URL.
 
 ```bash
 npm install
@@ -87,17 +122,17 @@ npm run dev
 
 O app roda em `http://localhost:5173`. Como `getUserMedia` exige contexto seguro, o uso em localhost funciona normalmente no navegador.
 
-## Configuração do Google Drive
+## Publicação no GitHub Pages
 
-Copie `src/config.example.js` para `src/config.js` (ignorado pelo git, não vai pro repositório) e preencha:
+1. Em **Settings → Pages**, defina *Source* como **GitHub Actions**.
+2. Em **Settings → Secrets and variables → Actions**, crie o secret `WEB_APP_URL` com a URL do Web App.
+3. Faça push na `main`. O workflow constrói e publica.
 
-1. `CLIENT_ID` com o OAuth Client ID do Google Cloud Console.
-2. `FOLDER_ID` com o ID da pasta do Google Drive onde os arquivos serão salvos.
-
-No Google Cloud Console, ative a **Google Drive API** e cadastre `http://localhost:5173` nas origens autorizadas durante o desenvolvimento.
+O GitHub Pages serve por HTTPS, o que é necessário para a câmera funcionar fora do `localhost`.
 
 ## Observações técnicas
 
-- As hashtags ficam salvas em `appProperties`, sem banco de dados separado.
-- Vídeos usam upload resumível, o que melhora a estabilidade em conexões instáveis.
-- A galeria baixa os arquivos como `blob:` local para garantir melhor compatibilidade na reprodução e no avanço do vídeo.
+- As hashtags e o nome de quem enviou ficam salvos em `appProperties`, sem banco de dados separado.
+- Fotos e vídeos usam o mesmo caminho de upload resumível, o que melhora a estabilidade em conexões instáveis e remove o limite de tamanho.
+- A pasta do Drive precisa estar como "qualquer pessoa com o link pode ver" para as miniaturas carregarem sem autenticação — a função `configurarPasta()` do script faz isso.
+- Como consequência, as mídias são acessíveis por quem tiver a URL do arquivo. Não são indexadas por buscadores, mas não são privadas.

@@ -12,11 +12,15 @@ export default function CaptureControls({
         ⟲
       </button>
 
+      {/* Durante a gravação o obturador vira "parar": é o botão maior e
+          mais ao alcance do polegar, e tirar foto no meio de um vídeo
+          interromperia a gravação de qualquer forma. */}
       <button
         className={`shutter ${recording ? 'recording' : ''}`}
-        onClick={onPhoto}
+        onClick={recording ? onToggleVideo : onPhoto}
         disabled={busy}
-        title="Tirar foto"
+        title={recording ? 'Parar gravação' : 'Tirar foto'}
+        aria-label={recording ? 'Parar gravação' : 'Tirar foto'}
       >
         <span className="shutter-inner" />
       </button>

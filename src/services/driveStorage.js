@@ -1,115 +1,233 @@
 // ============================================================
-//  driveStorage.js  ·  Chamadas à Drive API v3 (framework-agnostic)
-//  Todas as funções recebem o `token` (access token) como 1º argumento.
-//  O token vem do hook useDriveAuth.
+//  driveStorage.js · Conversa com o Web App do Apps Script
 // ============================================================
-import { FOLDER_ID, UPLOAD_URL, FILES_URL } from '../config.js';
+//  Não há token nem OAuth do lado do navegador: o script roda com
+//  a conta do dono da pasta.
+//
+//  O envio acontece em duas etapas:
+//    1. o script abre as sessões de upload resumível e devolve as URLs;
+//    2. o navegador manda os bytes direto para o Drive, nessas URLs.
+//  A etapa 2 dispensa autenticação — a session URI já é a credencial
+//  daquele upload. Por isso não há limite de tamanho e a barra de
+//  progresso continua funcionando.
+//
+//  A etapa 1 é feita em lote de propósito: N arquivos custam uma
+//  execução do Apps Script em vez de N, o que importa porque conta
+//  comum só tem 90 min de execução por dia.
+// ============================================================
+import { WEB_APP_URL } from '../config.js';
 
-const auth = (token) => ({ Authorization: 'Bearer ' + token });
-
-// ---- UPLOAD DE FOTO (multipart) ----------------------------
-// blob: vindo de canvas.toBlob(...). tags: array de hashtags.
-// author: nome opcional digitado no campo de identificação.
-export async function uploadImage(token, blob, filename, tags = [], author = '') {
-  const metadata = {
-    name: filename,
-    mimeType: blob.type || 'image/jpeg',
-    parents: [FOLDER_ID],
-    appProperties: { hashtags: tags.join(' '), author }, // "banco" nativo do Drive
-  };
-
-  const form = new FormData();
-  form.append(
-    'metadata',
-    new Blob([JSON.stringify(metadata)], { type: 'application/json' })
-  );
-  form.append('file', blob);
-
-  const res = await fetch(
-    `${UPLOAD_URL}?uploadType=multipart&fields=id,name,mimeType,appProperties`,
-    { method: 'POST', headers: auth(token), body: form }
-  );
-  if (!res.ok) throw new Error('Falha no upload da foto: ' + res.status);
-  return res.json();
+function endpoint() {
+  if (!WEB_APP_URL) {
+    throw new Error(
+      'VITE_WEB_APP_URL não configurada. Copie .env.example para .env.local e preencha.'
+    );
+  }
+  return WEB_APP_URL;
 }
 
-// ---- UPLOAD DE VÍDEO (resumível, com progresso) ------------
-// Recomendado p/ vídeo: aguenta rede instável e reporta progresso.
-export async function uploadVideo(token, blob, filename, tags = [], onProgress, author = '') {
-  const metadata = {
-    name: filename,
-    mimeType: blob.type || 'video/webm',
-    parents: [FOLDER_ID],
-    appProperties: { hashtags: tags.join(' '), author },
-  };
-
-  // 1) Abre a sessão resumível e captura a Location (session URI).
-  const start = await fetch(`${UPLOAD_URL}?uploadType=resumable&fields=id`, {
+// O Apps Script não responde ao preflight OPTIONS, então a requisição
+// precisa continuar "simples": nada de header Content-Type. Sem ele o
+// navegador manda text/plain, que é aceito, e o script lê o corpo com
+// e.postData.contents.
+async function post(payload) {
+  const res = await fetch(endpoint(), {
     method: 'POST',
-    headers: {
-      ...auth(token),
-      'Content-Type': 'application/json; charset=UTF-8',
-      'X-Upload-Content-Type': metadata.mimeType,
-    },
-    body: JSON.stringify(metadata),
+    body: JSON.stringify(payload),
   });
-  if (!start.ok) throw new Error('Falha ao iniciar upload resumível: ' + start.status);
-  const sessionUri = start.headers.get('Location');
+  return unwrap(res);
+}
 
-  // 2) Envia o binário via XHR (fetch não expõe progresso de upload).
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', sessionUri, true);
-    xhr.setRequestHeader('Content-Type', metadata.mimeType);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && onProgress) {
-        onProgress(Math.round((e.loaded / e.total) * 100));
-      }
-    };
-    xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve(JSON.parse(xhr.responseText))
-        : reject(new Error('Falha no upload do vídeo: ' + xhr.status));
-    xhr.onerror = () => reject(new Error('Erro de rede no upload do vídeo'));
-    xhr.send(blob);
-  });
+async function get(params) {
+  const res = await fetch(`${endpoint()}?${new URLSearchParams(params)}`);
+  return unwrap(res);
+}
+
+async function unwrap(res) {
+  if (!res.ok) throw new Error('O servidor respondeu ' + res.status);
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'Falha no servidor');
+  return data;
 }
 
 // ---- LISTAR MÍDIAS DA PASTA --------------------------------
-export async function listMedia(token) {
-  const q = encodeURIComponent(`'${FOLDER_ID}' in parents and trashed=false`);
-  const fields = encodeURIComponent(
-    'files(id,name,mimeType,createdTime,appProperties,thumbnailLink)'
-  );
-  const res = await fetch(
-    `${FILES_URL}?q=${q}&fields=${fields}&orderBy=createdTime desc&pageSize=1000`,
-    { headers: auth(token) }
-  );
-  if (!res.ok) throw new Error('Falha ao listar: ' + res.status);
-  const { files } = await res.json();
-  return files.map((f) => ({
-    ...f,
-    kind: (f.mimeType || '').startsWith('video') ? 'video' : 'image',
-    hashtags: (f.appProperties?.hashtags || '').split(' ').filter(Boolean),
-    author: f.appProperties?.author || '',
-  }));
+// Já vem com as URLs públicas prontas (thumbUrl / fullUrl / previewUrl).
+//
+// O servidor guarda a listagem em cache por 60 s. Passe fresh logo
+// depois de um envio, para a mídia nova aparecer sem esperar o cache.
+//
+// Devolve { items, generatedAt }. O generatedAt é o instante em que o
+// servidor montou a listagem — repetido entre chamadas, indica que a
+// resposta veio do cache.
+export async function listMedia({ fresh = false } = {}) {
+  const params = { action: 'list' };
+  if (fresh) params.fresh = '1';
+  const { items, generatedAt } = await get(params);
+  return { items, generatedAt };
+}
+
+// ---- ABRIR AS SESSÕES DE UPLOAD ----------------------------
+// files: [{ filename, mimeType, tags, author }]
+// Devolve um array na mesma ordem, cada item { sessionUri } ou
+// { error } — uma falha isolada não invalida o lote inteiro.
+// Quantos arquivos vão por pedido. O servidor recusa lotes grandes
+// (protege o tempo de uma execução e o tamanho do POST), então quem
+// envia muitas mídias precisa fatiar — ver handleConfirmPending.
+export const MAX_FILES_PER_REQUEST = 10;
+
+// Espelha o teto do servidor. Aqui serve para avisar antes de o
+// convidado esperar o envio; quem manda é a validação de lá.
+export const MAX_FILE_BYTES = 200 * 1024 * 1024;
+export const MAX_FILE_MB = Math.round(MAX_FILE_BYTES / 1048576);
+
+// A origem vai junto porque o servidor precisa repassá-la ao Google ao
+// abrir a sessão: é o que faz a resposta do PUT trazer os cabeçalhos
+// de CORS. Sem isso o arquivo é criado, mas o navegador descarta a
+// resposta e o envio parece ter falhado.
+export async function createUploadSessions(files) {
+  const { sessions } = await post({
+    action: 'createUploadSessions',
+    origin: window.location.origin,
+    files,
+  });
+  return sessions;
+}
+
+// ---- ENVIAR OS BYTES ---------------------------------------
+//  A sessão do Drive é resumível: se a conexão cair no meio, o que já
+//  subiu continua lá. Numa festa com Wi-Fi disputado isso é a
+//  diferença entre reenviar um vídeo inteiro e reenviar o pedaço que
+//  faltou.
+//
+//  Verificado contra o endpoint real: o preflight libera Content-Range
+//  e a resposta 308 expõe o cabeçalho Range, que é como o navegador
+//  descobre até onde o Google recebeu.
+const MAX_UPLOAD_RETRIES = 4;
+const RETRY_BASE_MS = 1500;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// "bytes=0-262143" -> 262144, o primeiro byte ainda não recebido.
+function proximoOffset(range) {
+  const m = /bytes=0-(\d+)/.exec(range || '');
+  return m ? Number(m[1]) + 1 : 0;
+}
+
+function corpoJson(texto) {
+  try {
+    return JSON.parse(texto);
+  } catch {
+    return {};
+  }
+}
+
+// XHR e não fetch: só ele expõe progresso de upload.
+function enviarFatia(sessionUri, blob, inicio, total, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', sessionUri, true);
+    xhr.setRequestHeader('Content-Type', blob.type || 'application/octet-stream');
+    // Só na retomada: no envio do zero, o PUT simples basta.
+    if (inicio > 0) {
+      xhr.setRequestHeader('Content-Range', `bytes ${inicio}-${total - 1}/${total}`);
+    }
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round(((inicio + e.loaded) / total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve({ concluido: true, corpo: corpoJson(xhr.responseText) });
+      } else if (xhr.status === 308) {
+        // Recebido em parte: o Google diz até onde chegou.
+        resolve({ concluido: false, offset: proximoOffset(xhr.getResponseHeader('Range')) });
+      } else {
+        reject(new Error('Falha no envio (' + xhr.status + ')'));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Erro de rede durante o envio'));
+    xhr.send(inicio > 0 ? blob.slice(inicio) : blob);
+  });
+}
+
+// Pergunta ao Google quanto ele já tem, sem mandar bytes.
+function consultarProgresso(sessionUri, total) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', sessionUri, true);
+    xhr.setRequestHeader('Content-Range', `bytes */${total}`);
+    xhr.onload = () => {
+      if (xhr.status === 308) {
+        resolve(proximoOffset(xhr.getResponseHeader('Range')));
+      } else if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(total); // já tinha concluído
+      } else {
+        reject(new Error('Não foi possível verificar o envio (' + xhr.status + ')'));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Erro de rede ao verificar o envio'));
+    xhr.send(new Blob([]));
+  });
+}
+
+export async function uploadToSession(sessionUri, blob, onProgress) {
+  const total = blob.size;
+  let inicio = 0;
+  let falhas = 0;
+
+  for (;;) {
+    try {
+      const res = await enviarFatia(sessionUri, blob, inicio, total, onProgress);
+      if (res.concluido) return res.corpo;
+
+      // 308 sem erro: o Google aceitou parte e espera o resto. Só conta
+      // como progresso se de fato avançou — senão isto viraria laço.
+      if (res.offset > inicio) {
+        inicio = res.offset;
+        falhas = 0;
+        continue;
+      }
+      falhas++;
+    } catch (err) {
+      falhas++;
+      if (falhas > MAX_UPLOAD_RETRIES) throw err;
+    }
+
+    if (falhas > MAX_UPLOAD_RETRIES) {
+      throw new Error('Não foi possível concluir o envio após várias tentativas');
+    }
+
+    await sleep(RETRY_BASE_MS * 2 ** (falhas - 1) + Math.random() * 500);
+
+    // Antes de reenviar, descobre o ponto real de parada: mandar do
+    // lugar errado faria o Google recusar o arquivo inteiro.
+    try {
+      const posicao = await consultarProgresso(sessionUri, total);
+      if (posicao >= total) return {};
+      inicio = posicao;
+    } catch {
+      // Nem a consulta passou: tenta de novo do mesmo ponto.
+    }
+  }
+}
+
+// ---- UPLOAD DE UMA MÍDIA SÓ (câmera) -----------------------
+export async function uploadMedia(blob, filename, tags = [], author = '', onProgress) {
+  const mimeType = blob.type || 'application/octet-stream';
+  const [session] = await createUploadSessions([
+    { filename, mimeType, size: blob.size, tags, author },
+  ]);
+  if (!session || session.error) {
+    throw new Error(session?.error || 'Não foi possível preparar o envio');
+  }
+  return uploadToSession(session.sessionUri, blob, onProgress);
 }
 
 // Filtro por hashtag no client (mantém a UX dos chips).
 export function filterByHashtag(items, tag) {
   if (!tag) return items;
   return items.filter((it) => it.hashtags.includes(tag));
-}
-
-// ---- BAIXAR MÍDIA -> object URL ----------------------------
-// Baixa autenticado e devolve blob: local. Assim o <video> faz seek
-// normalmente, contornando a limitação de range requests do Drive.
-// Baixa o arquivo inteiro: ótimo p/ fotos e vídeos curtos.
-export async function fileToObjectURL(token, fileId) {
-  const res = await fetch(`${FILES_URL}/${fileId}?alt=media`, {
-    headers: auth(token),
-  });
-  if (!res.ok) throw new Error('Falha ao baixar arquivo: ' + res.status);
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
 }

@@ -1,32 +1,55 @@
-// Lightbox: abre a mídia em tela cheia. Baixa o arquivo real (blob URL)
-// pra o vídeo ter seek confiável.
+// Lightbox: abre a mídia em tela cheia.
+//
+//  - Foto: mostra na hora a miniatura que a galeria já carregou (ela
+//    está no cache do navegador, então aparece instantaneamente) e
+//    troca pela versão grande quando ela terminar de baixar em
+//    segundo plano. Se a versão grande falhar, a miniatura fica —
+//    imagem menos nítida é melhor que mensagem de erro.
+//
+//  - Vídeo: o player do próprio Drive, num iframe. É o caminho que faz
+//    streaming e seek de forma confiável em qualquer tamanho de
+//    arquivo, sem precisar baixar o vídeo inteiro antes de tocar.
 import { useEffect, useState } from 'react';
+import { acquireSlot, reportarFalha } from '../utils/loadQueue.js';
 
-export default function Lightbox({ item, token, getUrl, onClose }) {
-  const [url, setUrl] = useState(null);
-  const [failed, setFailed] = useState(false);
+export default function Lightbox({ item, onClose }) {
+  const [src, setSrc] = useState(null);
+  const isVideo = item?.kind === 'video';
 
+  // Pré-carrega a versão grande fora da árvore do React: assim a troca
+  // do src acontece com a imagem já pronta, sem piscar.
   useEffect(() => {
-    if (!item) return;
-    let objUrl;
-    let cancelled = false;
-    setUrl(null);
-    setFailed(false);
-    getUrl(token, item.id)
-      .then((u) => {
-        if (cancelled) return URL.revokeObjectURL(u);
-        objUrl = u;
-        setUrl(u);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
+    if (!item || isVideo) return;
+
+    setSrc(item.thumbUrl);
+    let cancelado = false;
+    let liberar = null;
+
+    // priority: a foto aberta fura a fila do grid — o usuário está
+    // olhando para ela agora, não para as miniaturas ainda pendentes.
+    acquireSlot({ priority: true }).then((release) => {
+      if (cancelado) return release();
+      liberar = release;
+
+      const img = new Image();
+      img.referrerPolicy = 'no-referrer';
+      img.onload = () => {
+        release();
+        if (!cancelado) setSrc(item.fullUrl);
+      };
+      img.onerror = () => {
+        release();
+        reportarFalha();
+        // Sem alarde: a miniatura já resolve a visualização.
+      };
+      img.src = item.fullUrl;
+    });
+
     return () => {
-      cancelled = true;
-      if (objUrl) URL.revokeObjectURL(objUrl);
-      setUrl(null);
+      cancelado = true;
+      if (liberar) liberar();
     };
-  }, [item, token, getUrl]);
+  }, [item, isVideo]);
 
   if (!item) return null;
 
@@ -36,14 +59,17 @@ export default function Lightbox({ item, token, getUrl, onClose }) {
         ✕
       </button>
       <div className="lightbox-body" onClick={(e) => e.stopPropagation()}>
-        {failed ? (
-          <p className="lightbox-error mono">Não foi possível carregar a mídia.</p>
-        ) : !url ? (
-          <div className="lightbox-spinner" role="status" aria-label="Carregando" />
-        ) : item.kind === 'video' ? (
-          <video src={url} controls autoPlay playsInline />
+        {isVideo ? (
+          <iframe
+            src={item.previewUrl}
+            title={item.name}
+            allow="autoplay; fullscreen"
+            allowFullScreen
+          />
+        ) : src ? (
+          <img src={src} alt={item.name} referrerPolicy="no-referrer" />
         ) : (
-          <img src={url} alt={item.name} />
+          <div className="lightbox-spinner" role="status" aria-label="Carregando" />
         )}
         {item.author && <div className="lightbox-author mono">{item.author}</div>}
         {item.hashtags.length > 0 && (
