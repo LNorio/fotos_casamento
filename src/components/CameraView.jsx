@@ -8,6 +8,9 @@ export default function CameraView({
   recording,
   recordSeconds = 0,
   maxSeconds,
+  uploading = false,
+  progress = null,
+  statusLabel,
   facingMode,
   torchOn,
   torchSupported,
@@ -56,7 +59,25 @@ export default function CameraView({
         )}
       </div>
 
-      {!ready && !error && <div className="viewfinder-msg">Iniciando câmera…</div>}
+      {/* Envio em curso, sobre o visor. É onde o olho já está quando se
+          aperta o obturador — um indicador abaixo dos controles passava
+          despercebido e o botão apagado parecia falha. */}
+      {uploading && (
+        <div className="upload-overlay" role="status" aria-live="polite">
+          <div className="upload-spinner" />
+          <span className="upload-overlay-label">{statusLabel || 'Enviando…'}</span>
+          <div className="upload-track">
+            <div className="upload-track-bar" style={{ width: (progress ?? 0) + '%' }} />
+          </div>
+          <span className="upload-overlay-pct mono">
+            {progress === null ? 'preparando' : `${progress}%`}
+          </span>
+        </div>
+      )}
+
+      {!ready && !error && !uploading && (
+        <div className="viewfinder-msg">Iniciando câmera…</div>
+      )}
       {error && <div className="viewfinder-msg error">{error}</div>}
     </div>
   );

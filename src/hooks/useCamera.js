@@ -57,6 +57,11 @@ export function useCamera() {
       // Flash/lanterna: só existe em algumas câmeras traseiras (Android Chrome).
       const track = stream.getVideoTracks()[0];
       setTorchSupported(Boolean(track?.getCapabilities?.().torch));
+      // O sistema pode encerrar a faixa por conta própria (outro app
+      // tomou a câmera, tela bloqueada por muito tempo). Marcar como
+      // não pronta faz o visor voltar ao estado de carregamento em vez
+      // de exibir para sempre o último quadro congelado.
+      if (track) track.onended = () => setReady(false);
       setReady(true);
     } catch (err) {
       const map = {
@@ -75,6 +80,44 @@ export function useCamera() {
     return stop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facingMode]);
+
+  // Recuperação ao voltar do segundo plano.
+  //
+  // No celular, sair do navegador ou bloquear a tela suspende — e com
+  // frequência encerra — as faixas de vídeo. Ao retornar, o <video>
+  // continua exibindo o último quadro e a câmera parece travada, sem
+  // nenhum erro no console.
+  //
+  // Faixa encerrada exige reabrir a câmera; faixa viva mas pausada só
+  // precisa de um play(), que o iOS costuma exigir explicitamente.
+  const recordingRef = useRef(false);
+  useEffect(() => {
+    recordingRef.current = recording;
+  }, [recording]);
+
+  useEffect(() => {
+    const aoVoltar = () => {
+      if (document.visibilityState !== 'visible') return;
+      // Reabrir a câmera no meio de uma gravação a perderia.
+      if (recordingRef.current) return;
+
+      const track = streamRef.current?.getVideoTracks()[0];
+      if (!track || track.readyState !== 'live') {
+        start();
+        return;
+      }
+      videoRef.current?.play().catch(() => {});
+    };
+
+    document.addEventListener('visibilitychange', aoVoltar);
+    // pageshow cobre o retorno pelo cache de navegação (bfcache), em
+    // que visibilitychange pode não disparar.
+    window.addEventListener('pageshow', aoVoltar);
+    return () => {
+      document.removeEventListener('visibilitychange', aoVoltar);
+      window.removeEventListener('pageshow', aoVoltar);
+    };
+  }, [start]);
 
   const flipCamera = useCallback(() => {
     setFacingMode((m) => (m === 'environment' ? 'user' : 'environment'));
