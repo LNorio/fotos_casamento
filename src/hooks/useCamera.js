@@ -1,12 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Escolhe um mimeType de vídeo suportado (iOS x Android divergem).
+//
+// Cada candidato declara o codec de áudio junto. Informar só o de vídeo
+// — 'video/webm;codecs=vp9', como estava — faz várias implementações
+// gravarem sem som: o mimeType descreve o conteúdo do arquivo, e um
+// conteúdo sem trilha de áudio declarada leva o gravador a descartar a
+// faixa. Era o motivo de os vídeos saírem mudos.
 function pickVideoMime() {
+  // mp4/h264 primeiro, por compatibilidade: é o formato que o Drive usa
+  // como destino, então tende a exigir menos processamento antes de o
+  // vídeo ficar reproduzível na galeria — e é o único que o iOS grava.
+  // webm fica como alternativa para quem não suporta mp4.
   const candidates = [
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm',
+    'video/mp4;codecs=h264,aac',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=h264,opus',
     'video/mp4',
+    'video/webm',
   ];
   return candidates.find((t) => window.MediaRecorder?.isTypeSupported?.(t)) || '';
 }

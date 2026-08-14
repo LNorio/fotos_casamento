@@ -261,9 +261,13 @@ export default function App() {
     try {
       const blob = await cam.stopRecording();
       if (blob) {
+        // A extensão acompanha o que o gravador de fato produziu: com o
+        // mp4 na frente da lista de formatos, fixar ".webm" geraria um
+        // arquivo com nome mentindo sobre o conteúdo.
+        const ext = String(blob.type || '').includes('mp4') ? 'mp4' : 'webm';
         await uploadMedia(
           blob,
-          `video_${Date.now()}.webm`,
+          `video_${Date.now()}.${ext}`,
           currentTags,
           nameInput.trim(),
           setProgress

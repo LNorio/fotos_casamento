@@ -591,9 +591,33 @@ button {
   width: min(92vw, 900px);
   aspect-ratio: 16 / 9;
   max-height: 74vh;
+  /* Sem isto o container flex encolhe o quadro para caber, e o player
+     do Drive perde altura até os controles não caberem mais. */
+  flex-shrink: 0;
   border: 0;
   border-radius: 14px;
   background: #000;
+}
+/* No celular quase todo vídeo é vertical, e um quadro 16:9 sobra em
+   largura e falta em altura: o player fica espremido e seus controles
+   não cabem. Aqui o quadro passa a ser alto e o player letterboxa o
+   que vier dentro, seja retrato ou paisagem. */
+@media (max-width: 640px) {
+  .lightbox-body iframe {
+    aspect-ratio: auto;
+    width: 92vw;
+    height: 66vh;
+    max-height: none;
+  }
+}
+.lightbox-nota {
+  margin: 0;
+  max-width: 92vw;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #e8e2d6;
+  opacity: 0.85;
 }
 .lightbox-author {
   color: #f1efe8;

@@ -12,12 +12,31 @@
 import { useEffect, useState } from 'react';
 import { acquireSlot, reportarFalha } from '../utils/loadQueue.js';
 
+// Depois do envio, o Drive transcodifica o vídeo antes de conseguir
+// reproduzi-lo, e até lá o player exibe "ainda está sendo processado".
+// Não dá para trocar esse texto — ele vem de dentro do iframe —, mas dá
+// para avisar antes que aquilo é esperado e passa.
+const RECEM_ENVIADO_MS = 15 * 60 * 1000;
+
 export default function Lightbox({ item, onClose }) {
   const [src, setSrc] = useState(null);
+  // O player nativo é o caminho preferido; o do Drive entra se o
+  // navegador não der conta do arquivo.
+  const [usarPlayerDoDrive, setUsarPlayerDoDrive] = useState(false);
   const isVideo = item?.kind === 'video';
+  const recemEnviado =
+    isVideo &&
+    item?.createdTime &&
+    Date.now() - new Date(item.createdTime).getTime() < RECEM_ENVIADO_MS;
 
   // Pré-carrega a versão grande fora da árvore do React: assim a troca
   // do src acontece com a imagem já pronta, sem piscar.
+  // Cada mídia recomeça do player nativo: a reserva vale para o arquivo
+  // que falhou, não para os seguintes.
+  useEffect(() => {
+    setUsarPlayerDoDrive(false);
+  }, [item]);
+
   useEffect(() => {
     if (!item || isVideo) return;
 
@@ -60,16 +79,36 @@ export default function Lightbox({ item, onClose }) {
       </button>
       <div className="lightbox-body" onClick={(e) => e.stopPropagation()}>
         {isVideo ? (
-          <iframe
-            src={item.previewUrl}
-            title={item.name}
-            allow="autoplay; fullscreen"
-            allowFullScreen
-          />
+          usarPlayerDoDrive || !item.downloadUrl ? (
+            <iframe
+              src={item.previewUrl}
+              title={item.name}
+              allow="autoplay; fullscreen"
+              allowFullScreen
+            />
+          ) : (
+            // playsInline evita que o iOS assuma a tela inteira sozinho.
+            <video
+              src={item.downloadUrl}
+              controls
+              autoPlay
+              playsInline
+              onError={() => setUsarPlayerDoDrive(true)}
+            />
+          )
         ) : src ? (
           <img src={src} alt={item.name} referrerPolicy="no-referrer" />
         ) : (
           <div className="lightbox-spinner" role="status" aria-label="Carregando" />
+        )}
+        {/* Só faz sentido com o player do Drive: ele depende da
+            transcodificação, enquanto o nativo toca os bytes originais
+            assim que o envio termina. */}
+        {recemEnviado && usarPlayerDoDrive && (
+          <p className="lightbox-nota mono">
+            Vídeo recém-enviado — o Drive ainda pode estar preparando a
+            reprodução. Se não tocar, tente daqui a alguns minutos.
+          </p>
         )}
         {item.author && <div className="lightbox-author mono">{item.author}</div>}
         {item.hashtags.length > 0 && (
