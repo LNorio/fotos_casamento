@@ -8,6 +8,7 @@ export default function CameraView({
   recording,
   recordSeconds = 0,
   maxSeconds,
+  audioAtivo = false,
   uploading = false,
   progress = null,
   statusLabel,
@@ -34,6 +35,9 @@ export default function CameraView({
       {/* HUD */}
       <div className="hud mono">
         <span>{facingMode === 'user' ? 'FRONTAL' : 'TRASEIRA'}</span>
+        {/* Estado do microfone à vista: gravar sem som precisa ser
+            percebido antes, não ao rever o vídeo. */}
+        {ready && <span className="hud-audio">{audioAtivo ? '🎤' : '🔇 sem áudio'}</span>}
         {/* Com limite de duração, o tempo decorrido deixa de ser
             enfeite: sem ele a gravação simplesmente para sozinha. */}
         {recording && (

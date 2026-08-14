@@ -178,6 +178,11 @@ button {
   color: rgba(255, 255, 255, 0.9);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
+.hud-audio {
+  margin-left: auto;
+  margin-right: 10px;
+  opacity: 0.9;
+}
 .rec-dot {
   color: #ff6b6b;
   animation: blink 1s steps(2, start) infinite;
@@ -326,6 +331,10 @@ button {
 .capture-hint strong {
   color: var(--accent);
   font-weight: 600;
+}
+.capture-hint.aviso {
+  margin-top: 6px;
+  color: var(--rec);
 }
 .upload-row {
   padding: 6px 18px 0;
@@ -587,23 +596,46 @@ button {
 }
 /* Vídeo roda no player do Drive, dentro de um iframe: precisa de
    dimensão explícita, já que não há conteúdo próprio para medir. */
-.lightbox-body iframe {
+/* O player do Drive vive num iframe de outro domínio: não há como
+   estilizar seus controles daqui. Para diminuí-los, o iframe é
+   renderizado maior que o quadro visível e reduzido por transform —
+   tudo o que ele desenha encolhe junto, na mesma proporção.
+
+   --escala menor deixa os controles menores; abaixo de ~0,6 os ícones
+   ficam pequenos demais para o toque. */
+.lightbox-video {
+  --escala: 0.7;
+  position: relative;
   width: min(92vw, 900px);
   aspect-ratio: 16 / 9;
   max-height: 74vh;
   /* Sem isto o container flex encolhe o quadro para caber, e o player
      do Drive perde altura até os controles não caberem mais. */
   flex-shrink: 0;
-  border: 0;
+  overflow: hidden;
   border-radius: 14px;
   background: #000;
 }
-/* No celular quase todo vídeo é vertical, e um quadro 16:9 sobra em
-   largura e falta em altura: o player fica espremido e seus controles
-   não cabem. Aqui o quadro passa a ser alto e o player letterboxa o
-   que vier dentro, seja retrato ou paisagem. */
+.lightbox-body iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% / var(--escala));
+  height: calc(100% / var(--escala));
+  transform: scale(var(--escala));
+  transform-origin: top left;
+  border: 0;
+}
+/* Altura do quadro no celular, decidida por observação:
+     · 16:9 (~190px) e 4:3 (~260px) — o player do Drive troca para o
+       layout compacto e ESCONDE controles: some o botão de reprodução,
+       somem os saltos de ±10s e o tempo, sobra a barra espremida na
+       borda superior;
+     · 66vh (~570px) — mostra todos os controles.
+   O layout espaçado do quadro alto é menos elegante, mas perder botões
+   é pior que perder elegância. */
 @media (max-width: 640px) {
-  .lightbox-body iframe {
+  .lightbox-video {
     aspect-ratio: auto;
     width: 92vw;
     height: 66vh;
