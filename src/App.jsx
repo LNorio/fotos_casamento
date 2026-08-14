@@ -285,12 +285,14 @@ export default function App() {
     }
   }, [cam, currentTags, nameInput, refreshAfterUpload, flashStatus]);
 
-  const handleToggleVideo = useCallback(() => {
+  const handleToggleVideo = useCallback(async () => {
     if (cam.recording) {
       stopVideoAndUpload();
       return;
     }
-    cam.startRecording();
+    // Aguarda: o pedido de microfone pode abrir um diálogo de permissão,
+    // e o cronômetro não deve correr antes de a gravação existir.
+    await cam.startRecording();
     setRecordSeconds(0);
     clearInterval(recordTickRef.current);
     recordTickRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
@@ -497,10 +499,12 @@ export default function App() {
         recording={cam.recording}
         recordSeconds={recordSeconds}
         maxSeconds={MAX_VIDEO_MS / 1000}
+        // Só no fluxo da câmera: no envio pelo dispositivo, quem mostra
+        // o andamento é o próprio modal de revisão.
+        uploading={busy && pendingFiles.length === 0}
+        progress={progress}
+        statusLabel={uploadStatus}
         facingMode={cam.facingMode}
-        torchOn={cam.torchOn}
-        torchSupported={cam.torchSupported}
-        onToggleTorch={cam.toggleTorch}
       />
 
       <div className="tag-input-wrap">
@@ -551,15 +555,11 @@ export default function App() {
 
       {error && <p className="upload-status mono">{error}</p>}
 
-      {pendingFiles.length === 0 && uploadStatus && (
+      {/* Enquanto envia, quem informa é o indicador sobre o visor. Aqui
+          fica só a confirmação que aparece depois, já com o visor
+          liberado. */}
+      {!busy && pendingFiles.length === 0 && uploadStatus && (
         <p className="upload-status mono">{uploadStatus}</p>
-      )}
-
-      {pendingFiles.length === 0 && progress !== null && (
-        <div className="progress">
-          <div className="progress-bar" style={{ width: progress + '%' }} />
-          <span className="mono">{progress}%</span>
-        </div>
       )}
 
       <section className="gallery-section">

@@ -17,6 +17,8 @@
 // ============================================================
 import { WEB_APP_URL } from '../config.js';
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 function endpoint() {
   if (!WEB_APP_URL) {
     throw new Error(
@@ -30,12 +32,44 @@ function endpoint() {
 // precisa continuar "simples": nada de header Content-Type. Sem ele o
 // navegador manda text/plain, que é aceito, e o script lê o corpo com
 // e.postData.contents.
+// O Apps Script não responde ao POST diretamente: devolve um
+// redirecionamento para uma URL que guarda o resultado. Quando essa URL
+// expira — o que acontece com o app aberto e ocioso por muito tempo —, o
+// navegador refaz a requisição e recebe 404, ou é atendido pelo doGet e
+// recebe a listagem da galeria. Nos dois casos não há nada de errado com
+// o pedido: um POST novo gera um redirecionamento novo, e repetir
+// resolve.
+//
+// Erro de aplicação (ok: false) sobe na hora — repetir ali só adiaria a
+// mensagem que o usuário precisa ver.
+const POST_ATTEMPTS = 3;
+
 async function post(payload) {
-  const res = await fetch(endpoint(), {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-  return unwrap(res);
+  let ultimoErro;
+
+  for (let tentativa = 0; tentativa < POST_ATTEMPTS; tentativa++) {
+    if (tentativa > 0) await sleep(600 * tentativa);
+
+    let res;
+    try {
+      res = await fetch(endpoint(), {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      ultimoErro = err;
+      continue;
+    }
+
+    if (res.status === 404 || res.status >= 500) {
+      ultimoErro = new Error('O servidor respondeu ' + res.status);
+      continue;
+    }
+
+    return unwrap(res);
+  }
+
+  throw ultimoErro;
 }
 
 async function get(params) {
@@ -63,6 +97,11 @@ export async function listMedia({ fresh = false } = {}) {
   const params = { action: 'list' };
   if (fresh) params.fresh = '1';
   const { items, generatedAt } = await get(params);
+  // Mesma precaução do envio: uma resposta com forma inesperada precisa
+  // virar erro aqui, e não um estado inválido que só quebra na tela.
+  if (!Array.isArray(items)) {
+    throw new Error('O servidor não devolveu a lista de mídias.');
+  }
   return { items, generatedAt };
 }
 
@@ -85,12 +124,24 @@ export const MAX_FILE_MB = Math.round(MAX_FILE_BYTES / 1048576);
 // de CORS. Sem isso o arquivo é criado, mas o navegador descarta a
 // resposta e o envio parece ter falhado.
 export async function createUploadSessions(files) {
-  const { sessions } = await post({
+  const corpo = {
     action: 'createUploadSessions',
     origin: window.location.origin,
     files,
-  });
-  return sessions;
+  };
+
+  // O post já repete falhas de transporte. O que sobra aqui é a
+  // resposta bem-sucedida mas com a forma errada — a listagem da
+  // galeria chegando no lugar das sessões, pelo mesmo motivo descrito
+  // lá em cima.
+  for (let tentativa = 0; ; tentativa++) {
+    const data = await post(corpo);
+    if (Array.isArray(data.sessions)) return data.sessions;
+    if (tentativa >= 1) {
+      throw new Error('O servidor não devolveu as sessões de envio. Tente de novo.');
+    }
+    await sleep(600);
+  }
 }
 
 // ---- ENVIAR OS BYTES ---------------------------------------
@@ -104,8 +155,6 @@ export async function createUploadSessions(files) {
 //  descobre até onde o Google recebeu.
 const MAX_UPLOAD_RETRIES = 4;
 const RETRY_BASE_MS = 1500;
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // "bytes=0-262143" -> 262144, o primeiro byte ainda não recebido.
 function proximoOffset(range) {
@@ -217,9 +266,13 @@ export async function uploadToSession(sessionUri, blob, onProgress) {
 // ---- UPLOAD DE UMA MÍDIA SÓ (câmera) -----------------------
 export async function uploadMedia(blob, filename, tags = [], author = '', onProgress) {
   const mimeType = blob.type || 'application/octet-stream';
-  const [session] = await createUploadSessions([
+  const sessions = await createUploadSessions([
     { filename, mimeType, size: blob.size, tags, author },
   ]);
+  // Índice em vez de desestruturação: se algum dia isto voltar a vir
+  // vazio, o erro que aparece na tela deve dizer o que houve, não
+  // "is not iterable".
+  const session = sessions[0];
   if (!session || session.error) {
     throw new Error(session?.error || 'Não foi possível preparar o envio');
   }
