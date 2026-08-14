@@ -285,12 +285,14 @@ export default function App() {
     }
   }, [cam, currentTags, nameInput, refreshAfterUpload, flashStatus]);
 
-  const handleToggleVideo = useCallback(() => {
+  const handleToggleVideo = useCallback(async () => {
     if (cam.recording) {
       stopVideoAndUpload();
       return;
     }
-    cam.startRecording();
+    // Aguarda: o pedido de microfone pode abrir um diálogo de permissão,
+    // e o cronômetro não deve correr antes de a gravação existir.
+    await cam.startRecording();
     setRecordSeconds(0);
     clearInterval(recordTickRef.current);
     recordTickRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
@@ -503,9 +505,6 @@ export default function App() {
         progress={progress}
         statusLabel={uploadStatus}
         facingMode={cam.facingMode}
-        torchOn={cam.torchOn}
-        torchSupported={cam.torchSupported}
-        onToggleTorch={cam.toggleTorch}
       />
 
       <div className="tag-input-wrap">

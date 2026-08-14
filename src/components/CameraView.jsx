@@ -12,9 +12,6 @@ export default function CameraView({
   progress = null,
   statusLabel,
   facingMode,
-  torchOn,
-  torchSupported,
-  onToggleTorch,
 }) {
   return (
     <div className="viewfinder">
@@ -25,18 +22,6 @@ export default function CameraView({
         // espelha só a câmera frontal (selfie), como esperado
         style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
       />
-
-      {torchSupported && (
-        <button
-          type="button"
-          className={`torch-btn ${torchOn ? 'active' : ''}`}
-          onClick={onToggleTorch}
-          title={torchOn ? 'Desligar flash' : 'Ligar flash'}
-          aria-label={torchOn ? 'Desligar flash' : 'Ligar flash'}
-        >
-          ⚡
-        </button>
-      )}
 
       {/* moldura de foco */}
       <div className="focus-frame" aria-hidden="true">
