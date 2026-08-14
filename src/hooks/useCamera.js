@@ -27,7 +27,7 @@ function pickVideoMime() {
 // para liberar a câmera de fato — e nesse intervalo a abertura da outra
 // lente falha com NotReadableError. Insistir algumas vezes, com espera
 // crescente, resolve sem que o usuário veja erro nenhum.
-async function pedirCamera(constraints, tentativas = 3) {
+async function pedirMidia(constraints, tentativas = 3) {
   for (let i = 0; ; i++) {
     try {
       return await navigator.mediaDevices.getUserMedia(constraints);
@@ -52,27 +52,30 @@ export function useCamera() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const recorderRef = useRef(null);
-  const audioStreamRef = useRef(null);
   const chunksRef = useRef([]);
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(null);
   const [facingMode, setFacingMode] = useState('user'); // frontal por padrão
   const [recording, setRecording] = useState(false);
+  // Se a câmera veio com faixa de áudio. Fica visível no visor: sem
+  // isso, gravar mudo só é descoberto ao rever o vídeo — e não dá para
+  // distinguir "o microfone não veio" de "o gravador não usou".
+  const [audioAtivo, setAudioAtivo] = useState(false);
+  // 'bloqueado' | 'ausente' | 'ocupado' | '' — permite dizer o que
+  // fazer, em vez de só informar que não há som.
+  const [audioMotivo, setAudioMotivo] = useState('');
 
   const stop = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    // Cobre o desmonte no meio de uma gravação; no fim normal quem
-    // solta o microfone é o onstop do gravador.
-    audioStreamRef.current?.getTracks().forEach((t) => t.stop());
-    audioStreamRef.current = null;
     // Parar as faixas não basta: enquanto o <video> mantiver a
     // referência ao stream, boa parte dos aparelhos ainda considera a
     // câmera ocupada, e a abertura seguinte falha com NotReadableError.
     // É o que quebrava a troca entre traseira e frontal.
     if (videoRef.current) videoRef.current.srcObject = null;
     setReady(false);
+    setAudioAtivo(false);
   }, []);
 
   // Ordem da última abertura pedida. Duas chamadas concorrentes a
@@ -103,12 +106,36 @@ export function useCamera() {
     }
 
     try {
-      // Só vídeo. Pedir vídeo e áudio na mesma chamada faz o Chrome no
-      // Android escolher um pipeline de câmera que recusa a lanterna —
-      // o botão de flash aparecia e o applyConstraints era negado. O
-      // microfone passa a ser pedido em startRecording, o que também
-      // evita cobrar permissão de quem só quer tirar foto.
-      const stream = await pedirCamera({ video: { facingMode } });
+      // Vídeo e áudio na MESMA chamada, de propósito.
+      //
+      // Cheguei a separá-los para tentar destravar a lanterna, e o
+      // efeito colateral foi grave: o Chrome no Android não grava o
+      // áudio quando as faixas vêm de chamadas diferentes e são
+      // combinadas num MediaStream novo. No desktop grava, o que
+      // escondeu o problema — os vídeos do computador tinham som e os
+      // do celular não. Com a lanterna removida, separar não traz mais
+      // benefício nenhum.
+      //
+      // Se o microfone for negado, refaz só com vídeo: melhor gravar
+      // sem som do que não gravar.
+      let stream;
+      let motivo = '';
+      try {
+        stream = await pedirMidia({ video: { facingMode }, audio: true });
+      } catch (semMicrofone) {
+        // Guarda o porquê: uma negativa de permissão fica gravada no
+        // navegador e se repete em toda abertura seguinte, então o
+        // usuário precisa saber que a correção está nas permissões do
+        // site — não em tentar de novo.
+        motivo =
+          {
+            NotAllowedError: 'bloqueado',
+            NotFoundError: 'ausente',
+            NotReadableError: 'ocupado',
+          }[semMicrofone?.name] || 'ausente';
+        stream = await pedirMidia({ video: { facingMode } });
+      }
+      setAudioMotivo(motivo);
 
       // Outra abertura começou enquanto esta esperava: descarta a
       // resposta e libera a câmera, senão fica um stream sem dono.
@@ -123,6 +150,8 @@ export function useCamera() {
         v.srcObject = stream;
         await v.play().catch(() => {}); // Android Chrome exige play() explícito
       }
+      setAudioAtivo(stream.getAudioTracks().length > 0);
+
       const track = stream.getVideoTracks()[0];
       // O sistema pode encerrar a faixa por conta própria (outro app
       // tomou a câmera, tela bloqueada por muito tempo). Marcar como
@@ -214,28 +243,21 @@ export function useCamera() {
     const stream = streamRef.current;
     if (!stream) return;
 
-    // Microfone só agora, e num fluxo próprio. Se for negado, grava sem
-    // som em vez de não gravar.
-    let audioStream = null;
-    try {
-      audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (err) {
-      console.warn('Gravando sem áudio:', err?.name);
-    }
-    audioStreamRef.current = audioStream;
-
-    const combinado = new MediaStream([
-      ...stream.getVideoTracks(),
-      ...(audioStream ? audioStream.getAudioTracks() : []),
-    ]);
+    // Grava o stream da câmera como ele é. Ele já traz a faixa de áudio
+    // quando o microfone foi concedido — e é justamente por vir da
+    // mesma chamada que o Android a inclui na gravação.
+    const semAudio = stream.getAudioTracks().length
+      ? ''
+      : 'Sem microfone disponível: o vídeo será gravado sem som.';
 
     const mimeType = pickVideoMime();
-    const recorder = new MediaRecorder(combinado, mimeType ? { mimeType } : undefined);
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     chunksRef.current = [];
     recorder.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
     recorder.start();
     recorderRef.current = recorder;
     setRecording(true);
+    return { semAudio };
   }, []);
 
   // Para a gravação e resolve com o Blob do vídeo.
@@ -244,11 +266,6 @@ export function useCamera() {
       const recorder = recorderRef.current;
       if (!recorder) return resolve(null);
       recorder.onstop = () => {
-        // Solta o microfone junto: manter a faixa viva deixa o
-        // indicador de gravação aceso no sistema depois do fim.
-        audioStreamRef.current?.getTracks().forEach((t) => t.stop());
-        audioStreamRef.current = null;
-
         const blob = new Blob(chunksRef.current, {
           type: recorder.mimeType || 'video/webm',
         });
@@ -265,6 +282,8 @@ export function useCamera() {
     error,
     facingMode,
     recording,
+    audioAtivo,
+    audioMotivo,
     flipCamera,
     capturePhoto,
     startRecording,

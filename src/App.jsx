@@ -296,13 +296,16 @@ export default function App() {
     }
     // Aguarda: o pedido de microfone pode abrir um diálogo de permissão,
     // e o cronômetro não deve correr antes de a gravação existir.
-    await cam.startRecording();
+    const inicio = await cam.startRecording();
+    // Gravar sem som precisa ser dito na hora — descobrir isso só ao
+    // rever o vídeo não deixa alternativa nenhuma.
+    if (inicio?.semAudio) flashStatus(inicio.semAudio, 5000);
     setRecordSeconds(0);
     clearInterval(recordTickRef.current);
     recordTickRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
     clearTimeout(recordLimitRef.current);
     recordLimitRef.current = setTimeout(stopVideoAndUpload, MAX_VIDEO_MS);
-  }, [cam, stopVideoAndUpload]);
+  }, [cam, stopVideoAndUpload, flashStatus]);
 
   // Escolha de arquivos do dispositivo (fotos e vídeos): não envia direto,
   // abre o preview pra revisar a mídia e ajustar as hashtags de cada uma.
@@ -503,6 +506,7 @@ export default function App() {
         recording={cam.recording}
         recordSeconds={recordSeconds}
         maxSeconds={MAX_VIDEO_MS / 1000}
+        audioAtivo={cam.audioAtivo}
         // Só no fluxo da câmera: no envio pelo dispositivo, quem mostra
         // o andamento é o próprio modal de revisão.
         uploading={busy && pendingFiles.length === 0}
@@ -532,6 +536,17 @@ export default function App() {
         <span aria-hidden="true">🎬</span> Grave um <strong>short</strong> de até{' '}
         {LIMITE_VIDEO} — a gravação para sozinha no tempo
       </p>
+
+      {/* Microfone negado fica gravado no navegador e se repete em toda
+          abertura: sem esta instrução, o convidado tentaria de novo
+          para sempre e continuaria sem som. */}
+      {cam.audioMotivo === 'bloqueado' && (
+        <p className="capture-hint aviso">
+          🔇 O microfone está bloqueado para este site, então os vídeos sairão
+          sem som. Toque no ícone à esquerda do endereço, abra as permissões e
+          libere o microfone.
+        </p>
+      )}
 
       <div className="upload-row">
         <input
