@@ -224,8 +224,17 @@ function toItem_(f) {
     // galeria sem rebaixar as imagens que já estão no cache.
     thumbUrl: thumbUrl_(f.id, THUMB_SIZE),
     fullUrl: isVideo ? null : thumbUrl_(f.id, FULL_SIZE),
-    // Vídeo: o player do próprio Drive, que faz streaming e seek
-    // corretamente em qualquer tamanho de arquivo.
+    // Vídeo, dois caminhos.
+    //
+    // downloadUrl serve os bytes originais e aceita requisições
+    // parciais (206 com Content-Range, verificado), então um <video>
+    // nativo transmite e avança normalmente — com os controles do
+    // próprio sistema, e sem esperar o Drive transcodificar.
+    //
+    // previewUrl é o player do Drive, usado como reserva quando o
+    // navegador não consegue reproduzir o arquivo (webm no iOS, por
+    // exemplo).
+    downloadUrl: isVideo ? 'https://drive.google.com/uc?export=download&id=' + f.id : null,
     previewUrl: isVideo ? 'https://drive.google.com/file/d/' + f.id + '/preview' : null,
   };
 }
